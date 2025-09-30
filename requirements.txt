@@ -1,7 +1,7 @@
-streamlit
-numpy
-plotly
-fenics-dolfin
-gmsh
-meshio
-pyvista
+streamlit==1.31.0
+numpy==1.26.4
+plotly==5.22.0
+fenics==2019.1.0
+gmsh==4.13.0
+meshio==5.3.5
+pyvista==0.44.0

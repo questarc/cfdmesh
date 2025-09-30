@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import io
 import zipfile
+import scipy.interpolate as interp
 
 st.title("CFD Simulator: Fluid Flow, Heat, and Chemical Transport (Simplified Demo)")
 
@@ -32,7 +33,7 @@ with st.expander("About the CFD Simulator"):
         - **Current Implementation**: To run on Streamlit Cloud, which lacks support for FEniCS system dependencies (e.g., MPI, PETSc), this version generates synthetic data based on mathematical functions modulated by user inputs. For example:
           - Velocity magnitude is computed as `sin(πx) * cos(πy) * (1 / (1 + Re*z))`, where `Re` is the Reynolds number.
           - Temperature is modeled as `exp(-Pr*(x² + y² + z²))`, with `Pr` as the Prandtl number.
-          - For uploaded points, a synthetic scalar field is computed for contour visualization.
+          - For uploaded points, a synthetic scalar field is computed and interpolated to a grid for contour visualization.
         - **Test Data and Mesh Generation**: Users can upload CSV files with `x`, `y`, `z` coordinates to visualize a point cloud and isosurface contours, or ZIP files with mesh files (.msh, .stl, .vtk). Due to Streamlit Cloud limitations, mesh processing is simulated with synthetic visualizations.
         - **Libraries**:
           - `streamlit`: Provides the web interface for user inputs and visualization.
@@ -40,10 +41,11 @@ with st.expander("About the CFD Simulator"):
           - `plotly`: Creates interactive 3D plots (isosurfaces for velocity, volume plots for temperature, scatter for meshes).
           - `pandas`: Processes uploaded CSV files for test data.
           - `zipfile`: Handles ZIP file uploads for mesh data.
+          - `scipy`: Used for interpolating sparse points to a grid for isosurface rendering.
         - **Limitations**:
           - The current demo does not solve actual PDEs due to the absence of FEniCS. For full CFD simulations, deploy on a platform supporting Docker (e.g., Google Cloud Run, Render.com) with a FEniCS-based setup.
           - Synthetic data provides a qualitative visualization but lacks the accuracy of true CFD solvers.
-          - Mesh generation is simulated due to the absence of `gmsh` and `pyvista`.
+          - Mesh generation is simulated due to the absence of `gmsh` and `pyvista`. For sparse uploaded points, interpolation may not be perfect; use denser datasets for better contours.
         - **Future Enhancements**: For production use, integrate a proper CFD solver (e.g., FEniCS, OpenFOAM) by deploying on a Docker-compatible platform or allow users to upload precomputed simulation data.
 
         ### How to Use
@@ -141,11 +143,24 @@ with tab2:
                 
                 # Generate synthetic scalar field for contours (mimicking velocity)
                 scalar_field = np.sin(points[:, 0] * np.pi) * np.cos(points[:, 1] * np.pi) * np.exp(-points[:, 2])
+                
+                # Create a regular grid for interpolation (assume points in [0,1] range; adjust if needed)
+                grid_res = 20  # Grid resolution; higher for smoother but slower
+                min_x, max_x = np.min(points[:, 0]), np.max(points[:, 0])
+                min_y, max_y = np.min(points[:, 1]), np.max(points[:, 1])
+                min_z, max_z = np.min(points[:, 2]), np.max(points[:, 2])
+                grid_x, grid_y, grid_z = np.mgrid[min_x:max_x:grid_res*1j, min_y:max_y:grid_res*1j, min_z:max_z:grid_res*1j]
+                grid_points = np.vstack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()]).T
+                
+                # Interpolate scalar field to grid
+                grid_scalar = interp.griddata(points, scalar_field, grid_points, method='linear', fill_value=0)
+                
+                # Create isosurface on interpolated grid
                 fig_contours = go.Figure(data=go.Isosurface(
-                    x=points[:, 0], y=points[:, 1], z=points[:, 2],
-                    value=scalar_field,
-                    isomin=np.min(scalar_field) * 0.2,
-                    isomax=np.max(scalar_field) * 0.8,
+                    x=grid_x.flatten(), y=grid_y.flatten(), z=grid_z.flatten(),
+                    value=grid_scalar,
+                    isomin=np.min(grid_scalar) * 0.2 if np.any(grid_scalar) else 0.1,
+                    isomax=np.max(grid_scalar) * 0.8 if np.any(grid_scalar) else 0.5,
                     surface_count=5,
                     colorscale='Viridis',
                     caps=dict(x_show=False, y_show=False, z_show=False)
@@ -200,8 +215,9 @@ with tab2:
     else:
         # Default test data generation
         if st.button("Generate Default Test Mesh Data"):
-            # Generate sample CSV data for points
-            sample_data = {'x': np.random.rand(50), 'y': np.random.rand(50), 'z': np.random.rand(50)}
+            # Generate sample CSV data for points (denser for better interpolation)
+            n_points = 1000  # Increased for better contour rendering
+            sample_data = {'x': np.random.rand(n_points), 'y': np.random.rand(n_points), 'z': np.random.rand(n_points)}
             df_sample = pd.DataFrame(sample_data)
             csv_buffer = io.StringIO()
             df_sample.to_csv(csv_buffer, index=False)
@@ -218,11 +234,24 @@ with tab2:
             
             # Synthetic scalar field for contours
             scalar_field = np.sin(df_sample['x'] * np.pi) * np.cos(df_sample['y'] * np.pi) * np.exp(-df_sample['z'])
+            
+            # Create a regular grid for interpolation
+            grid_res = 20
+            min_x, max_x = np.min(df_sample['x']), np.max(df_sample['x'])
+            min_y, max_y = np.min(df_sample['y']), np.max(df_sample['y'])
+            min_z, max_z = np.min(df_sample['z']), np.max(df_sample['z'])
+            grid_x, grid_y, grid_z = np.mgrid[min_x:max_x:grid_res*1j, min_y:max_y:grid_res*1j, min_z:max_z:grid_res*1j]
+            grid_points = np.vstack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()]).T
+            
+            # Interpolate
+            grid_scalar = interp.griddata(df_sample[['x', 'y', 'z']].values, scalar_field, grid_points, method='linear', fill_value=0)
+            
+            # Isosurface
             fig_contours = go.Figure(data=go.Isosurface(
-                x=df_sample['x'], y=df_sample['y'], z=df_sample['z'],
-                value=scalar_field,
-                isomin=np.min(scalar_field) * 0.2,
-                isomax=np.max(scalar_field) * 0.8,
+                x=grid_x.flatten(), y=grid_y.flatten(), z=grid_z.flatten(),
+                value=grid_scalar,
+                isomin=np.min(grid_scalar) * 0.2 if np.any(grid_scalar) else 0.1,
+                isomax=np.max(grid_scalar) * 0.8 if np.any(grid_scalar) else 0.5,
                 surface_count=5,
                 colorscale='Viridis',
                 caps=dict(x_show=False, y_show=False, z_show=False)

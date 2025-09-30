@@ -24,7 +24,7 @@ with st.expander("About the CFD Simulator"):
           - **Prandtl Number**: Governs the relationship between momentum and thermal diffusivity, influencing heat transfer.
           - **Schmidt Number**: Determines the ratio of momentum to mass diffusivity, affecting chemical species transport.
         - **Visualization**: Displays 3D isosurfaces of velocity magnitude and volume plots of temperature fields using Plotly, allowing interactive exploration of the simulated fields.
-        - **Test Data Upload**: Upload CSV files with point coordinates or ZIP files containing mesh data (e.g., .msh) to visualize custom meshes.
+        - **Test Data Upload**: Upload CSV files with `x`, `y`, `z` coordinates to visualize a point cloud and isosurface contours, or ZIP files containing mesh data (e.g., .msh) for preview.
         - **Simplified Approach**: Due to deployment constraints on Streamlit Cloud, this version uses synthetic (mock) data to mimic CFD results, ensuring compatibility without requiring complex dependencies like FEniCS.
 
         ### Technical Details
@@ -32,8 +32,8 @@ with st.expander("About the CFD Simulator"):
         - **Current Implementation**: To run on Streamlit Cloud, which lacks support for FEniCS system dependencies (e.g., MPI, PETSc), this version generates synthetic data based on mathematical functions modulated by user inputs. For example:
           - Velocity magnitude is computed as `sin(πx) * cos(πy) * (1 / (1 + Re*z))`, where `Re` is the Reynolds number.
           - Temperature is modeled as `exp(-Pr*(x² + y² + z²))`, with `Pr` as the Prandtl number.
-          - These mimic realistic CFD fields but are not true solutions to PDEs.
-        - **Test Data and Mesh Generation**: Users can upload CSV files with `x`, `y`, `z` coordinates to visualize a point cloud or ZIP files with mesh files (.msh, .stl, .vtk). Due to Streamlit Cloud limitations, mesh processing is simulated with synthetic visualizations.
+          - For uploaded points, a synthetic scalar field is computed for contour visualization.
+        - **Test Data and Mesh Generation**: Users can upload CSV files with `x`, `y`, `z` coordinates to visualize a point cloud and isosurface contours, or ZIP files with mesh files (.msh, .stl, .vtk). Due to Streamlit Cloud limitations, mesh processing is simulated with synthetic visualizations.
         - **Libraries**:
           - `streamlit`: Provides the web interface for user inputs and visualization.
           - `numpy`: Handles numerical computations for the synthetic data.
@@ -53,9 +53,9 @@ with st.expander("About the CFD Simulator"):
            - Click "Run Simulation" to generate and visualize synthetic velocity and temperature fields.
            - Explore the 3D plots interactively by rotating, zooming, or panning.
         2. **Load Test Data & Generate Mesh Tab**:
-           - Upload a CSV file with `x`, `y`, `z` columns to visualize a point cloud or a ZIP file with mesh files (.msh, .stl, .vtk).
+           - Upload a CSV file with `x`, `y`, `z` columns to visualize a point cloud and isosurface contours, or a ZIP file with mesh files (.msh, .stl, .vtk).
            - Generate a default test mesh (CSV) if no file is uploaded.
-           - View the resulting point cloud or synthetic mesh visualization.
+           - View the resulting point cloud and synthetic contour visualization.
         3. For real CFD simulations, follow the instructions in the info box below to deploy on a platform supporting FEniCS.
 
         This demo is ideal for educational purposes or visualizing CFD concepts without heavy computational requirements.
@@ -129,16 +129,37 @@ with tab2:
             # Example: Extract points for simple mesh generation
             if 'x' in df.columns and 'y' in df.columns and 'z' in df.columns:
                 points = df[['x', 'y', 'z']].values
-                st.subheader("Generated Mesh from Points")
+                st.subheader("Generated Mesh Visualizations")
+                
+                # Point cloud visualization
                 fig_points = go.Figure(data=go.Scatter3d(
                     x=points[:, 0], y=points[:, 1], z=points[:, 2],
                     mode='markers',
                     marker=dict(size=3, color='blue')
                 ))
                 fig_points.update_layout(title="3D Point Cloud Mesh")
-                st.plotly_chart(fig_points, use_container_width=True)
+                
+                # Generate synthetic scalar field for contours (mimicking velocity)
+                scalar_field = np.sin(points[:, 0] * np.pi) * np.cos(points[:, 1] * np.pi) * np.exp(-points[:, 2])
+                fig_contours = go.Figure(data=go.Isosurface(
+                    x=points[:, 0], y=points[:, 1], z=points[:, 2],
+                    value=scalar_field,
+                    isomin=np.min(scalar_field) * 0.2,
+                    isomax=np.max(scalar_field) * 0.8,
+                    surface_count=5,
+                    colorscale='Viridis',
+                    caps=dict(x_show=False, y_show=False, z_show=False)
+                ))
+                fig_contours.update_layout(title="Synthetic Scalar Field Isosurfaces")
+
+                # Display both plots side by side
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.plotly_chart(fig_points, use_container_width=True)
+                with col2:
+                    st.plotly_chart(fig_contours, use_container_width=True)
             else:
-                st.warning("CSV file should contain 'x', 'y', 'z' columns for mesh generation.")
+                st.warning("CSV file should contain 'x', 'y', 'z' columns for mesh and contour visualization.")
         
         elif uploaded_file.type == 'application/zip':
             # Handle ZIP file containing mesh files (e.g., .msh, .stl, or .vtk)
@@ -186,16 +207,33 @@ with tab2:
             df_sample.to_csv(csv_buffer, index=False)
             st.download_button("Download Sample CSV", csv_buffer.getvalue(), "sample_mesh_points.csv", "text/csv")
             
-            st.subheader("Default Test Mesh Preview")
-            st.dataframe(df_sample.head())
-            
-            # Visualize sample points
+            st.subheader("Default Test Mesh Visualizations")
+            # Point cloud visualization
             fig_sample = go.Figure(data=go.Scatter3d(
                 x=df_sample['x'], y=df_sample['y'], z=df_sample['z'],
                 mode='markers',
                 marker=dict(size=3, color='green')
             ))
             fig_sample.update_layout(title="Sample 3D Point Cloud")
-            st.plotly_chart(fig_sample, use_container_width=True)
+            
+            # Synthetic scalar field for contours
+            scalar_field = np.sin(df_sample['x'] * np.pi) * np.cos(df_sample['y'] * np.pi) * np.exp(-df_sample['z'])
+            fig_contours = go.Figure(data=go.Isosurface(
+                x=df_sample['x'], y=df_sample['y'], z=df_sample['z'],
+                value=scalar_field,
+                isomin=np.min(scalar_field) * 0.2,
+                isomax=np.max(scalar_field) * 0.8,
+                surface_count=5,
+                colorscale='Viridis',
+                caps=dict(x_show=False, y_show=False, z_show=False)
+            ))
+            fig_contours.update_layout(title="Sample Scalar Field Isosurfaces")
+
+            # Display both plots side by side
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(fig_sample, use_container_width=True)
+            with col2:
+                st.plotly_chart(fig_contours, use_container_width=True)
 
 st.info("For full FEniCS-based simulations, deploy via Docker on Google Cloud Run or Render.com. See the 'About' section for details.")
